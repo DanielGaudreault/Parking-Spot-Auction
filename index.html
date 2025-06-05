@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parking Spot Auction</title>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.css" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    header {
+      background-color: #4361ee;
+      color: white;
+      padding: 1rem;
+      text-align: center;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    .spot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .spot-card {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+    .spot-card:hover {
+      transform: translateY(-5px);
+    }
+    .spot-image {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+    }
+    .spot-details {
+      padding: 1rem;
+    }
+    .spot-price {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #4361ee;
+    }
+    .spot-address {
+      color: #666;
+      margin: 0.5rem 0;
+    }
+    .spot-amenities {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+    }
+    .amenity-tag {
+      background: #e9ecef;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+    button {
+      background: #4361ee;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+    button:hover {
+      background: #3a56d4;
+    }
+    #map {
+      width: 100%;
+      height: 400px;
+      margin: 1rem 0;
+      border-radius: 8px;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .close-modal {
+      float: right;
+      cursor: pointer;
+    }
+    #bid-form input {
+      width: 100%;
+      padding: 0.5rem;
+      margin: 0.5rem 0;
+    }
+    .bid-history {
+      max-height: 200px;
+      overflow-y: auto;
+      margin: 1rem 0;
+      border: 1px solid #eee;
+      padding: 0.5rem;
+    }
+    .bid-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    .tab-container {
+      display: flex;
+      margin: 1rem 0;
+    }
+    .tab {
+      padding: 0.5rem 1rem;
+      background: #ddd;
+      cursor: pointer;
+    }
+    .tab.active {
+      background: #4361ee;
+      color: white;
+    }
+    #add-spot-form input, #add-spot-form textarea {
+      width: 100%;
+      padding: 0.5rem;
+      margin: 0.5rem 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Parking Spot Auction</h1>
+    <p>Rent or list parking spaces in your area</p>
+  </header>
+
+  <div class="container">
+    <div class="tab-container">
+      <div class="tab active" onclick="showTab('browse')">Browse Spots</div>
+      <div class="tab" onclick="showTab('add')">List Your Spot</div>
+      <div class="tab" onclick="showTab('my-spots')">My Spots</div>
+    </div>
+
+    <!-- Browse Spots Tab -->
+    <div id="browse-tab">
+      <div id="map"></div>
+      <div class="spot-grid" id="spots-container">
+        <!-- Spots will be loaded here -->
+      </div>
+    </div>
+
+    <!-- Add Spot Tab -->
+    <div id="add-tab" style="display: none;">
+      <h2>List Your Parking Spot</h2>
+      <form id="add-spot-form">
+        <input type="text" id="spot-title" placeholder="Title (e.g., 'Downtown Covered Spot')" required>
+        <textarea id="spot-description" placeholder="Description" rows="3"></textarea>
+        <input type="text" id="spot-address" placeholder="Address" required>
+        <p>Click on the map to set location</p>
+        <div id="add-spot-map" style="height: 300px; margin: 1rem 0;"></div>
+        <input type="number" id="spot-price" placeholder="Starting price ($)" min="1" required>
+        <select id="spot-size" required>
+          <option value="">Select spot size</option>
+          <option value="compact">Compact</option>
+          <option value="standard">Standard</option>
+          <option value="large">Large</option>
+          <option value="oversized">Oversized</option>
+        </select>
+        <div>
+          <label><input type="checkbox" id="ev-charging"> EV Charging Available</label>
+        </div>
+        <div>
+          <label><input type="checkbox" id="covered"> Covered</label>
+        </div>
+        <button type="submit">List Spot</button>
+      </form>
+    </div>
+
+    <!-- My Spots Tab -->
+    <div id="my-spots-tab" style="display: none;">
+      <h2>My Listed Spots</h2>
+      <div class="spot-grid" id="my-spots-container">
+        <!-- User's spots will be loaded here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Spot Details Modal -->
+  <div class="modal" id="spot-modal">
+    <div class="modal-content">
+      <span class="close-modal" onclick="closeModal()">&times;</span>
+      <h2 id="modal-spot-title"></h2>
+      <div id="modal-spot-map" style="height: 200px; margin: 1rem 0;"></div>
+      <p id="modal-spot-address"></p>
+      <p id="modal-spot-description"></p>
+      <div class="spot-amenities" id="modal-spot-amenities"></div>
+      <div class="spot-price" id="modal-spot-price"></div>
+      <p>Auction ends: <span id="modal-spot-end"></span></p>
+      
+      <h3>Place a Bid</h3>
+      <form id="bid-form">
+        <input type="number" id="bid-amount" placeholder="Your bid amount" required>
+        <input type="text" id="bidder-name" placeholder="Your name" required>
+        <button type="submit">Submit Bid</button>
+      </form>
+      
+      <h3>Bid History</h3>
+      <div class="bid-history" id="bid-history">
+        <!-- Bids will be loaded here -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize Mapbox
+    mapboxgl.accessToken = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+    
+    // Main map for browsing
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v11',
+      center: [-74.5, 40], // Default center (NYC)
+      zoom: 12
+    });
+    
+    // Map for adding new spots
+    let addSpotMap;
+    
+    // Current selected spot for modal
+    let currentSpot = null;
+    
+    // Load data from localStorage
+    let spots = JSON.parse(localStorage.getItem('parking-spots')) || [];
+    let bids = JSON.parse(localStorage.getItem('parking-bids')) || {};
+    
+    // Initialize the app
+    document.addEventListener('DOMContentLoaded', function() {
+      loadSpots();
+      setupMap();
+      
+      // Form submissions
+      document.getElementById('add-spot-form').addEventListener('submit', addNewSpot);
+      document.getElementById('bid-form').addEventListener('submit', placeBid);
+    });
+    
+    function setupMap() {
+      // Add navigation controls to main map
+      map.addControl(new mapboxgl.NavigationControl());
+      
+      // Load spots onto map
+      spots.forEach(spot => {
+        new mapboxgl.Marker()
+          .setLngLat(spot.location.coordinates)
+          .setPopup(new mapboxgl.Popup().setHTML(`
+            <h3>${spot.title}</h3>
+            <p>$${spot.currentPrice}/hr</p>
+            <button onclick="openSpotModal('${spot.id}')">View Details</button>
+          `))
+          .addTo(map);
+      });
+      
+      // Initialize the "add spot" map
+      addSpotMap = new mapboxgl.Map({
+        container: 'add-spot-map',
+        style: 'mapbox://styles/mapbox/streets-v11',
+        center: [-74.5, 40],
+        zoom: 12
+      });
+      
+      // Add click handler for location selection
+      addSpotMap.on('click', function(e) {
+        // Clear existing markers
+        document.querySelectorAll('#add-spot-map .mapboxgl-marker').forEach(el => el.remove());
+        
+        // Add new marker
+        new mapboxgl.Marker()
+          .setLngLat(e.lngLat)
+          .addTo(addSpotMap);
+          
+        // Update address field with reverse geocoding (simplified)
+        document.getElementById('spot-address').value = 
+          `Near ${e.lngLat.lng.toFixed(4)}, ${e.lngLat.lat.toFixed(4)}`;
+      });
+    }
+    
+    function loadSpots() {
+      const spotsContainer = document.getElementById('spots-container');
+      spotsContainer.innerHTML = '';
+      
+      spots.forEach(spot => {
+        const spotCard = document.createElement('div');
+        spotCard.className = 'spot-card';
+        spotCard.innerHTML = `
+          <img src="${spot.image || 'https://via.placeholder.com/300x150?text=Parking+Spot'}" class="spot-image">
+          <div class="spot-details">
+            <h3>${spot.title}</h3>
+            <p class="spot-address">${spot.address.substring(0, 30)}...</p>
+            <div class="spot-amenities">
+              ${spot.amenities.evCharging ? '<span class="amenity-tag">EV Charging</span>' : ''}
+              ${spot.amenities.covered ? '<span class="amenity-tag">Covered</span>' : ''}
+              <span class="amenity-tag">${spot.size}</span>
+            </div>
+            <div class="spot-price">$${spot.currentPrice}/hr</div>
+            <button onclick="openSpotModal('${spot.id}')">Bid Now</button>
+          </div>
+        `;
+        spotsContainer.appendChild(spotCard);
+      });
+      
+      // Load user's spots if any
+      loadMySpots();
+    }
+    
+    function loadMySpots() {
+      const mySpotsContainer = document.getElementById('my-spots-container');
+      mySpotsContainer.innerHTML = '';
+      
+      // In a real app, you'd filter by owner, but we'll show all for demo
+      spots.forEach(spot => {
+        const spotCard = document.createElement('div');
+        spotCard.className = 'spot-card';
+        spotCard.innerHTML = `
+          <img src="${spot.image || 'https://via.placeholder.com/300x150?text=Parking+Spot'}" class="spot-image">
+          <div class="spot-details">
+            <h3>${spot.title}</h3>
+            <p class="spot-address">${spot.address.substring(0, 30)}...</p>
+            <div class="spot-price">Current bid: $${spot.currentPrice}/hr</div>
+            <button onclick="openSpotModal('${spot.id}')">View Bids</button>
+          </div>
+        `;
+        mySpotsContainer.appendChild(spotCard);
+      });
+    }
+    
+    function addNewSpot(e) {
+      e.preventDefault();
+      
+      const title = document.getElementById('spot-title').value;
+      const description = document.getElementById('spot-description').value;
+      const address = document.getElementById('spot-address').value;
+      const price = parseFloat(document.getElementById('spot-price').value);
+      const size = document.getElementById('spot-size').value;
+      const evCharging = document.getElementById('ev-charging').checked;
+      const covered = document.getElementById('covered').checked;
+      
+      // Get coordinates from the marker on the map
+      const marker = document.querySelector('#add-spot-map .mapboxgl-marker');
+      if (!marker) {
+        alert('Please select a location on the map');
+        return;
+      }
+      
+      const lng = parseFloat(marker.getAttribute('data-lng'));
+      const lat = parseFloat(marker.getAttribute('data-lat'));
+      
+      const newSpot = {
+        id: 'spot-' + Date.now(),
+        title,
+        description,
+        address,
+        location: {
+          type: 'Point',
+          coordinates: [lng, lat]
+        },
+        basePrice: price,
+        currentPrice: price,
+        size,
+        amenities: {
+          evCharging,
+          covered
+        },
+        auctionEnd: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        owner: 'user-' + Math.random().toString(36).substr(2, 9)
+      };
+      
+      spots.push(newSpot);
+      localStorage.setItem('parking-spots', JSON.stringify(spots));
+      
+      // Reset form
+      e.target.reset();
+      alert('Spot listed successfully!');
+      showTab('browse');
+      loadSpots();
+    }
+    
+    function openSpotModal(spotId) {
+      currentSpot = spots.find(spot => spot.id === spotId);
+      if (!currentSpot) return;
+      
+      document.getElementById('modal-spot-title').textContent = currentSpot.title;
+      document.getElementById('modal-spot-address').textContent = currentSpot.address;
+      document.getElementById('modal-spot-description').textContent = currentSpot.description || 'No description provided.';
+      document.getElementById('modal-spot-price').textContent = `Current bid: $${currentSpot.currentPrice}/hr`;
+      document.getElementById('modal-spot-end').textContent = new Date(currentSpot.auctionEnd).toLocaleString();
+      
+      // Clear amenities
+      const amenitiesContainer = document.getElementById('modal-spot-amenities');
+      amenitiesContainer.innerHTML = '';
+      
+      // Add amenities
+      if (currentSpot.amenities.evCharging) {
+        const tag = document.createElement('span');
+        tag.className = 'amenity-tag';
+        tag.textContent = 'EV Charging';
+        amenitiesContainer.appendChild(tag);
+      }
+      
+      if (currentSpot.amenities.covered) {
+        const tag = document.createElement('span');
+        tag.className = 'amenity-tag';
+        tag.textContent = 'Covered';
+        amenitiesContainer.appendChild(tag);
+      }
+      
+      const sizeTag = document.createElement('span');
+      sizeTag.className = 'amenity-tag';
+      sizeTag.textContent = currentSpot.size;
+      amenitiesContainer.appendChild(sizeTag);
+      
+      // Initialize modal map
+      const modalMap = new mapboxgl.Map({
+        container: 'modal-spot-map',
+        style: 'mapbox://styles/mapbox/streets-v11',
+        center: currentSpot.location.coordinates,
+        zoom: 15,
+        interactive: false
+      });
+      
+      new mapboxgl.Marker()
+        .setLngLat(currentSpot.location.coordinates)
+        .addTo(modalMap);
+      
+      // Load bid history
+      loadBidHistory(spotId);
+      
+      // Show modal
+      document.getElementById('spot-modal').style.display = 'flex';
+    }
+    
+    function closeModal() {
+      document.getElementById('spot-modal').style.display = 'none';
+    }
+    
+    function loadBidHistory(spotId) {
+      const bidHistory = document.getElementById('bid-history');
+      bidHistory.innerHTML = '';
+      
+      const spotBids = bids[spotId] || [];
+      
+      if (spotBids.length === 0) {
+        bidHistory.innerHTML = '<p>No bids yet</p>';
+        return;
+      }
+      
+      spotBids.forEach(bid => {
+        const bidItem = document.createElement('div');
+        bidItem.className = 'bid-item';
+        bidItem.innerHTML = `
+          <span>${bid.bidder}</span>
+          <span>$${bid.amount}</span>
+        `;
+        bidHistory.appendChild(bidItem);
+      });
+    }
+    
+    function placeBid(e) {
+      e.preventDefault();
+      
+      if (!currentSpot) return;
+      
+      const amount = parseFloat(document.getElementById('bid-amount').value);
+      const bidder = document.getElementById('bidder-name').value;
+      
+      if (amount <= currentSpot.currentPrice) {
+        alert('Your bid must be higher than the current price');
+        return;
+      }
+      
+      // Update spot price
+      currentSpot.currentPrice = amount;
+      const spotIndex = spots.findIndex(spot => spot.id === currentSpot.id);
+      spots[spotIndex] = currentSpot;
+      localStorage.setItem('parking-spots', JSON.stringify(spots));
+      
+      // Add bid to history
+      if (!bids[currentSpot.id]) {
+        bids[currentSpot.id] = [];
+      }
+      
+      bids[currentSpot.id].push({
+        bidder,
+        amount,
+        timestamp: new Date().toISOString()
+      });
+      
+      localStorage.setItem('parking-bids', JSON.stringify(bids));
+      
+      // Update UI
+      document.getElementById('modal-spot-price').textContent = `Current bid: $${amount}/hr`;
+      loadBidHistory(currentSpot.id);
+      
+      // Reset form
+      e.target.reset();
+      document.getElementById('bid-amount').value = amount + 1;
+    }
+    
+    function showTab(tabName) {
+      // Hide all tabs
+      document.getElementById('browse-tab').style.display = 'none';
+      document.getElementById('add-tab').style.display = 'none';
+      document.getElementById('my-spots-tab').style.display = 'none';
+      
+      // Deactivate all tabs
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      
+      // Show selected tab
+      document.getElementById(`${tabName}-tab`).style.display = 'block';
+      
+      // Activate selected tab
+      document.querySelectorAll('.tab').forEach(tab => {
+        if (tab.textContent.toLowerCase().includes(tabName)) {
+          tab.classList.add('active');
+        }
+      });
+      
+      // Initialize add spot map if needed
+      if (tabName === 'add' && !addSpotMap) {
+        setTimeout(() => {
+          addSpotMap = new mapboxgl.Map({
+            container: 'add-spot-map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: map.getCenter(),
+            zoom: 14
+          });
+          
+          addSpotMap.on('click', function(e) {
+            document.querySelectorAll('#add-spot-map .mapboxgl-marker').forEach(el => el.remove());
+            new mapboxgl.Marker()
+              .setLngLat(e.lngLat)
+              .addTo(addSpotMap);
+          });
+        }, 100);
+      }
+    }
+  </script>
+</body>
+</html>
